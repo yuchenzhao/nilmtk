@@ -335,7 +335,6 @@ class FHMM(Disaggregator):
         length = len(test_mains.index)
         temp = test_mains.values.reshape(length, 1)
         learnt_states_array.append(self.model.predict(temp))
-
         # Model
         means = OrderedDict()
         for elec_meter, model in iteritems(self.individual):
@@ -506,3 +505,69 @@ class FHMM(Disaggregator):
                     building=mains.building(),
                     meters=self.meters
                 )
+
+    ###################### Methods Below by Yuchen ############################
+
+    def output_probability(self, test_elec, file_dist_output):
+        for i, chunk in enumerate(test_elec.mains().load(sample_period = 60)):
+            test_mains = chunk.dropna()
+            length = len(test_mains.index)
+            temp = test_mains.values.reshape(length, 1)
+            np.save(file_dist_output + "_main_" + str(i) + ".npy",
+                    self.model.predict_proba(temp))
+
+
+    def output_states(self, used_meters, test_elec, file_states_output):
+        main_meters = test_elec.mains()
+        sub_meters = test_elec.submeters()
+        pred = {}
+        gt = {}
+        for i, chunk in enumerate(main_meters.load(sample_period=60)):
+            chunk_drop_na = chunk.dropna()
+            pred[i] = self.disaggregate_chunk_with_states(chunk_drop_na)
+            gt[i] = {}
+
+            for meter in test_elec.submeters().meters:
+                if meter not in used_meters:
+                    continue
+                gt[i][meter] = next(meter.load(sample=60)).dropna()
+                gt[i][meter] = add_states_column(meter, gt[i][meter]) 
+
+
+
+    def add_states_column(self, meter, df_power):
+        for elec_meter, model in iteritems(slef.individual):
+            if elec_meter == meter:
+                means = model.means_.round().astype(int).flatten().tolist()
+                means.sort()
+        states = []
+        ## TODO: convert the power values to states. Find the closest mean value to a power value, and the index of the mean value is the state.
+
+
+    def disaggregate_chunk_with_states(self, test_mains):
+        learnt_states_array = []
+        test_mains = test_mains.dropna()
+        length = len(tst_mains.index)
+        temp = test_mains.values.reshape(length, 1)
+        learnt_states_array.append(self.model.predict(temp))
+
+        means = OrderedDict()
+        for elec_meter, model in iteritems(self.individual):
+            means[elec_meter] = model.means_.round().astype(int).flatten().tolist())
+            means[elec_meter].sort()
+
+        decoded_power_array = []
+        decoded_states_array = []
+
+        for learnt_states in learn_states_array:
+            decoded_states, decoded_power = decode_hmm(len(learnt_states), means, means.keys(), learnt_states)
+            decoded_states_array.append(decoded_states)
+            decoded_power_array.append(decoded_power)
+
+        prediction = pd.DataFrame(decoded_power_array[0], decoded_states_array[0], index=test_mains.index)
+
+        return prediction
+
+    def output_for_metrics(self, used_meters, test_elec, file_dist_output, file_states_output):
+        output_probability(test_elec, file_dist_output)
+        output_states(used_meters, test_elec, file_states_output)
