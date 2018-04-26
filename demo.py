@@ -28,11 +28,12 @@ fhmm.train(top_5_train_elec, sample_period=60)
 pred = {}
 gt = {}
 
-for i, chunk in enumerate(test_elec.mains().load(sample_period=60)):
-    chunk_drop_na = chunk.dropna()
-    start = time.time()
-    print("Disaggregation gets started now")
-    fhmm.output_for_metrics(chunk_drop_na, "data/output/dist.npy")
-    end = time.time()
-    print("Disaggregation done. Runtime = ", end - start, " seconds.")
+start = time.time()
+print("Disaggregation gets started now")
+fhmm.output_for_metrics(top_5_train_elec.submeters().meters,
+                        test_elec,
+                        "data/output/dist.npy",
+                        "data/output/state.npy")
+end = time.time()
+print("Disaggregation done. Runtime = ", end - start, " seconds.")
 

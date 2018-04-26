@@ -4,6 +4,7 @@ from copy import deepcopy
 from collections import OrderedDict
 from warnings import warn
 
+import sys
 import nilmtk
 import pandas as pd
 import numpy as np
@@ -525,49 +526,77 @@ class FHMM(Disaggregator):
         for i, chunk in enumerate(main_meters.load(sample_period=60)):
             chunk_drop_na = chunk.dropna()
             pred[i] = self.disaggregate_chunk_with_states(chunk_drop_na)
-            gt[i] = {}
 
             for meter in test_elec.submeters().meters:
                 if meter not in used_meters:
                     continue
-                gt[i][meter] = next(meter.load(sample=60)).dropna()
-                gt[i][meter] = add_states_column(meter, gt[i][meter]) 
+                df_power = next(meter.load(sample_period=60)).dropna()
+                df_extend = self.add_states_column(meter, df_power) 
+                df_extend.columns = [meter.label() + " " + m[0] for m in df_extend.columns.values]
+                if i not in gt.keys():
+                    gt[i] = df_extend
+                else:
+                    gt[i] = pd.concat([gt[i], df_extend], axis = 1)
+            gt[i] = gt[i][pred[i].columns]
 
+            pred[i].columns = [m + " (P)" for m in pred[i].columns.values]
+            gt[i].columns = [m + " (G)" for m in gt[i].columns.values]
+
+            print(pred[i].head)
+            print(gt[i].head)
+                
 
 
     def add_states_column(self, meter, df_power):
-        for elec_meter, model in iteritems(slef.individual):
+        for elec_meter, model in iteritems(self.individual):
             if elec_meter == meter:
                 means = model.means_.round().astype(int).flatten().tolist()
                 means.sort()
-        states = []
-        ## TODO: convert the power values to states. Find the closest mean value to a power value, and the index of the mean value is the state.
+        def power_to_state(x):
+            min_index = 0
+            min_distance = sys.float_info.max
+            for i, mean in enumerate(means):
+                if (abs(x - mean) < min_distance).bool():
+                    min_distance = abs(x - mean)
+                    min_index = i
+            return min_index
+
+        df_power["state"] = 0
+        for index, row in df_power.iterrows():
+            row["state"] = power_to_state(row["power"])
+        return df_power
 
 
     def disaggregate_chunk_with_states(self, test_mains):
         learnt_states_array = []
         test_mains = test_mains.dropna()
-        length = len(tst_mains.index)
+        length = len(test_mains.index)
         temp = test_mains.values.reshape(length, 1)
         learnt_states_array.append(self.model.predict(temp))
 
         means = OrderedDict()
         for elec_meter, model in iteritems(self.individual):
-            means[elec_meter] = model.means_.round().astype(int).flatten().tolist())
+            means[elec_meter] = model.means_.round().astype(int).flatten().tolist()
             means[elec_meter].sort()
 
         decoded_power_array = []
         decoded_states_array = []
 
-        for learnt_states in learn_states_array:
+        for learnt_states in learnt_states_array:
             decoded_states, decoded_power = decode_hmm(len(learnt_states), means, means.keys(), learnt_states)
             decoded_states_array.append(decoded_states)
             decoded_power_array.append(decoded_power)
 
-        prediction = pd.DataFrame(decoded_power_array[0], decoded_states_array[0], index=test_mains.index)
+        prediction_power = pd.DataFrame(decoded_power_array[0], index=test_mains.index)
+        prediction_state = pd.DataFrame(decoded_states_array[0], index=test_mains.index)
+        
+        prediction_power.columns = [m.label() + " power" for m in prediction_power.columns.values]
+        prediction_state.columns = [m.label() + " state" for m in prediction_state.columns.values]
 
+        prediction = pd.concat([prediction_power, prediction_state], axis=1)
         return prediction
 
     def output_for_metrics(self, used_meters, test_elec, file_dist_output, file_states_output):
-        output_probability(test_elec, file_dist_output)
-        output_states(used_meters, test_elec, file_states_output)
+
+#            self.output_probability(test_elec, file_dist_output)
+            self.output_states(used_meters, test_elec, file_states_output)
