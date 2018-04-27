@@ -509,8 +509,8 @@ class FHMM(Disaggregator):
 
     ###################### Methods Below by Yuchen ############################
 
-    def output_probability(self, test_elec, file_dist_output):
-        for i, chunk in enumerate(test_elec.mains().load(sample_period = 60)):
+    def output_probability(self, test_elec, sample_period, file_dist_output):
+        for i, chunk in enumerate(test_elec.mains().load(sample_period = sample_period)):
             test_mains = chunk.dropna()
             length = len(test_mains.index)
             temp = test_mains.values.reshape(length, 1)
@@ -518,19 +518,20 @@ class FHMM(Disaggregator):
                     self.model.predict_proba(temp))
 
 
-    def output_states(self, used_meters, test_elec, file_states_output):
+    def output_states(self, used_meters, test_elec, sample_period, file_states_output):
         main_meters = test_elec.mains()
         sub_meters = test_elec.submeters()
         pred = {}
         gt = {}
-        for i, chunk in enumerate(main_meters.load(sample_period=60)):
+        df = {}
+        for i, chunk in enumerate(main_meters.load(sample_period=sample_period)):
             chunk_drop_na = chunk.dropna()
             pred[i] = self.disaggregate_chunk_with_states(chunk_drop_na)
 
             for meter in test_elec.submeters().meters:
                 if meter not in used_meters:
                     continue
-                df_power = next(meter.load(sample_period=60)).dropna()
+                df_power = next(meter.load(sample_period=sample_period)).dropna()
                 df_extend = self.add_states_column(meter, df_power) 
                 df_extend.columns = [meter.label() + " " + m[0] for m in df_extend.columns.values]
                 if i not in gt.keys():
@@ -541,11 +542,15 @@ class FHMM(Disaggregator):
 
             pred[i].columns = [m + " (P)" for m in pred[i].columns.values]
             gt[i].columns = [m + " (G)" for m in gt[i].columns.values]
+            pred_index_utc = pred[i].index.tz_convert("UTC")
+            gt_index_utc = gt[i].index.tz_convert("UTC")
+            common_index_utc = gt_index_utc.intersection(pred_index_utc)
+            gt_overall = gt[i].ix[common_index_utc]
+            pred_overall = pred[i].ix[common_index_utc]
 
-            print(pred[i].head)
-            print(gt[i].head)
-                
-
+            df[i] = pd.concat([pred_overall, gt_overall], axis=1)
+            file_name = file_states_output + "_main_" + str(i) + ".pkl"
+            df[i].to_pickle(file_name)
 
     def add_states_column(self, meter, df_power):
         for elec_meter, model in iteritems(self.individual):
@@ -596,7 +601,7 @@ class FHMM(Disaggregator):
         prediction = pd.concat([prediction_power, prediction_state], axis=1)
         return prediction
 
-    def output_for_metrics(self, used_meters, test_elec, file_dist_output, file_states_output):
+    def output_for_metrics(self, used_meters, test_elec, sample_period, file_dist_output, file_states_output):
 
-#            self.output_probability(test_elec, file_dist_output)
-            self.output_states(used_meters, test_elec, file_states_output)
+            self.output_probability(test_elec, sample_period, file_dist_output)
+            self.output_states(used_meters, test_elec, sample_period, file_states_output)

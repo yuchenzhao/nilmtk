@@ -32,8 +32,9 @@ start = time.time()
 print("Disaggregation gets started now")
 fhmm.output_for_metrics(top_5_train_elec.submeters().meters,
                         test_elec,
-                        "data/output/dist.npy",
-                        "data/output/state.npy")
+                        60,
+                        "data/output/dist",
+                        "data/output/state")
 end = time.time()
 print("Disaggregation done. Runtime = ", end - start, " seconds.")
 
